@@ -61,7 +61,6 @@ def main():
         # Load the dataset
         logger.info("Training on dataset: {}".format(config['dataset_name']))
         train_dataset = Dataset(data_path=config['train_data_path'],
-                                with_subfolder=config['data_with_subfolder'],
                                 image_shape=config['image_shape'],
                                 random_crop=config['random_crop'])
         # val_dataset = Dataset(data_path=config['val_data_path'],
@@ -98,14 +97,14 @@ def main():
 
         for iteration in range(start_iteration, config['niter'] + 1):
             try:
-                ground_truth = next(iterable_train_loader)
+                ground_truth, x, mask = next(iterable_train_loader)
             except StopIteration:
                 iterable_train_loader = iter(train_loader)
-                ground_truth = next(iterable_train_loader)
+                ground_truth, x, mask = next(iterable_train_loader)
 
             # Prepare the inputs
-            bboxes = random_bbox(config, batch_size=ground_truth.size(0))
-            x, mask = mask_image(ground_truth, bboxes, config)
+            # bboxes = random_bbox(config, batch_size=ground_truth.size(0))
+            # x, mask = mask_image(ground_truth, bboxes, config)
             if cuda:
                 x = x.cuda()
                 mask = mask.cuda()
@@ -113,7 +112,7 @@ def main():
 
             ###### Forward pass ######
             compute_g_loss = iteration % config['n_critic'] == 0
-            losses, inpainted_result, offset_flow = trainer(x, bboxes, mask, ground_truth, compute_g_loss)
+            losses, inpainted_result, offset_flow = trainer(x, mask, ground_truth, compute_g_loss)
             # Scalars from different devices are gathered into vectors
             for k in losses.keys():
                 if not losses[k].dim() == 0:
@@ -124,7 +123,6 @@ def main():
             trainer_module.optimizer_d.zero_grad()
             losses['d'] = losses['wgan_d'] + losses['wgan_gp'] * config['wgan_gp_lambda']
             losses['d'].backward()
-            trainer_module.optimizer_d.step()
 
             # Update G
             if compute_g_loss:
@@ -134,6 +132,7 @@ def main():
                               + losses['wgan_g'] * config['gan_loss_alpha']
                 losses['g'].backward()
                 trainer_module.optimizer_g.step()
+            trainer_module.optimizer_d.step()
 
             # Log and visualization
             log_losses = ['l1', 'ae', 'wgan_g', 'wgan_d', 'wgan_gp', 'g', 'd']

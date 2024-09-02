@@ -178,6 +178,9 @@ class FineGenerator(nn.Module):
         x = self.allconv17(x)
         x_stage2 = torch.clamp(x, -1., 1.)
 
+        # x_stage2 = torch.where(x_stage2 >= 0,
+        #                        torch.tensor(1.0, dtype=x_stage2.dtype, device=x_stage2.device),
+        #                        torch.tensor(-253.0 / 255, dtype=x_stage2.dtype, device=x_stage2.device))
         return x_stage2, offset_flow
 
 
@@ -405,7 +408,7 @@ class LocalDis(nn.Module):
         self.device_ids = device_ids
 
         self.dis_conv_module = DisConvModule(self.input_dim, self.cnum)
-        self.linear = nn.Linear(self.cnum*4*8*8, 1)
+        self.linear = nn.Linear(self.cnum*4*16*16, 1)
 
     def forward(self, x):
         x = self.dis_conv_module(x)

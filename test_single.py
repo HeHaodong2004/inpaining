@@ -1,5 +1,7 @@
 import os
 import random
+import imageio
+import glob
 from argparse import ArgumentParser
 
 import torch
@@ -13,42 +15,19 @@ from utils.tools import get_config, random_bbox, mask_image, is_image_file, defa
 
 
 parser = ArgumentParser()
-parser.add_argument('--config', type=str, default='configs/config.yaml',
-                    help="training configuration")
+parser.add_argument('--config', type=str, default='configs/test.yaml',
+                    help="testing configuration")
 parser.add_argument('--seed', type=int, help='manual seed')
-parser.add_argument('--image', type=str)
-parser.add_argument('--mask', type=str, default='')
-parser.add_argument('--output', type=str, default='output.png')
+# parser.add_argument('--image', type=str, default='dataset/full/1.png')
+# parser.add_argument('--mask', type=str, default=None)
+parser.add_argument('--image', type=str, default='dataset/part/1_0.png')
+parser.add_argument('--mask', type=str, default='dataset/mask/1_0.png')
+parser.add_argument('--output', type=str, default='dataset/1_0_p.png')
 parser.add_argument('--flow', type=str, default='')
-parser.add_argument('--checkpoint_path', type=str, default='')
+parser.add_argument('--checkpoint_path', type=str, default='part_map_inpainting')
 parser.add_argument('--iter', type=int, default=0)
 
-def main():
-    args = parser.parse_args()
-    config = get_config(args.config)
-
-    # CUDA configuration
-    cuda = config['cuda']
-    device_ids = config['gpu_ids']
-    if cuda:
-        os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(str(i) for i in device_ids)
-        device_ids = list(range(len(device_ids)))
-        config['gpu_ids'] = device_ids
-        cudnn.benchmark = True
-
-    print("Arguments: {}".format(args))
-
-    # Set random seed
-    if args.seed is None:
-        args.seed = random.randint(1, 10000)
-    print("Random seed: {}".format(args.seed))
-    random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    if cuda:
-        torch.cuda.manual_seed_all(args.seed)
-
-    print("Configuration: {}".format(config))
-
+def main(netG, args, config):
     try:  # for unexpected error logging
         with torch.no_grad():   # enter no grad context
             if is_image_file(args.image):
@@ -79,23 +58,7 @@ def main():
                     bboxes = random_bbox(config, batch_size=ground_truth.size(0))
                     x, mask = mask_image(ground_truth, bboxes, config)
 
-                # Set checkpoint path
-                if not args.checkpoint_path:
-                    checkpoint_path = os.path.join('checkpoints',
-                                                   config['dataset_name'],
-                                                   config['mask_type'] + '_' + config['expname'])
-                else:
-                    checkpoint_path = args.checkpoint_path
-
-                # Define the trainer
-                netG = Generator(config['netG'], cuda, device_ids)
-                # Resume weight
-                last_model_name = get_model_list(checkpoint_path, "gen", iteration=args.iter)
-                netG.load_state_dict(torch.load(last_model_name))
-                model_iteration = int(last_model_name[-11:-3])
-                print("Resume from {} at iteration {}".format(checkpoint_path, model_iteration))
-
-                if cuda:
+                if config['cuda']:
                     netG = nn.parallel.DataParallel(netG, device_ids=device_ids)
                     x = x.cuda()
                     mask = mask.cuda()
@@ -104,7 +67,14 @@ def main():
                 x1, x2, offset_flow = netG(x, mask)
                 inpainted_result = x2 * mask + x * (1. - mask)
 
-                vutils.save_image(inpainted_result, args.output, padding=0, normalize=True)
+                if "ground_truth" in locals():
+                    x = x + ground_truth.cuda() if config['cuda'] else x + ground_truth
+                    x /= 2
+
+                viz_images = torch.stack([x, inpainted_result, offset_flow], dim=1)
+                viz_images = viz_images.view(-1, *list(x.size())[1:])
+
+                vutils.save_image(viz_images, args.output, padding=0, normalize=True)
                 print("Saved the inpainted result to {}".format(args.output))
                 if args.flow:
                     vutils.save_image(offset_flow, args.flow, padding=0, normalize=True)
@@ -118,4 +88,44 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    args = parser.parse_args()
+    config = get_config(args.config)
+    print("Arguments: {}".format(args))
+
+    # CUDA configuration
+    cuda = config['cuda']
+    device_ids = config['gpu_ids']
+    if cuda:
+        os.environ['CUDA_VISIBLE_DEVICES'] = ','.join(str(i) for i in device_ids)
+        device_ids = list(range(len(device_ids)))
+        config['gpu_ids'] = device_ids
+        cudnn.benchmark = True
+    print("Configuration: {}".format(config))
+
+    # Define the trainer
+    netG = Generator(config['netG'], cuda, device_ids)
+    # Resume weight
+    last_model_name = get_model_list(args.checkpoint_path, "gen", iteration=args.iter)
+    netG.load_state_dict(torch.load(last_model_name))
+    model_iteration = int(last_model_name[-11:-3])
+    print("Resume from {} at iteration {}".format(args.checkpoint_path, model_iteration))
+
+    img_id = 0
+    frame_files = []
+    n_img = len(glob.glob(f'dataset/part/{img_id}_*.png'))
+    print(f'number of images: {n_img}')
+
+    for i in range(n_img):
+        args.image = f'dataset/part/{img_id}_{i}.png'
+        args.mask = f'dataset/mask/{img_id}_{i}.png'
+        args.output = f'dataset/{img_id}_{i}_predict.png'
+        frame_files.append(args.output)
+        main(netG, args, config)
+
+    with imageio.get_writer(f'dataset/{img_id}_predict.gif', mode='I', duration=2) as writer:
+        for frame in frame_files:
+            image = imageio.imread(frame)
+            writer.append_data(image)
+    print(f'gif completed: dataset/{img_id}_predict.gif')
+    for filename in frame_files:
+        os.remove(filename)

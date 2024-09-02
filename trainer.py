@@ -32,45 +32,45 @@ class Trainer(nn.Module):
             self.localD.to(self.device_ids[0])
             self.globalD.to(self.device_ids[0])
 
-    def forward(self, x, bboxes, masks, ground_truth, compute_loss_g=False):
+    def forward(self, x, masks, ground_truth, compute_loss_g=False):
         self.train()
         l1_loss = nn.L1Loss()
         losses = {}
 
         x1, x2, offset_flow = self.netG(x, masks)
-        local_patch_gt = local_patch(ground_truth, bboxes)
+        # local_patch_gt = local_patch(ground_truth, bboxes)
         x1_inpaint = x1 * masks + x * (1. - masks)
         x2_inpaint = x2 * masks + x * (1. - masks)
-        local_patch_x1_inpaint = local_patch(x1_inpaint, bboxes)
-        local_patch_x2_inpaint = local_patch(x2_inpaint, bboxes)
+        # local_patch_x1_inpaint = local_patch(x1_inpaint, bboxes)
+        # local_patch_x2_inpaint = local_patch(x2_inpaint, bboxes)
 
         # D part
         # wgan d loss
         local_patch_real_pred, local_patch_fake_pred = self.dis_forward(
-            self.localD, local_patch_gt, local_patch_x2_inpaint.detach())
+            self.localD, ground_truth, x2_inpaint.detach())
         global_real_pred, global_fake_pred = self.dis_forward(
             self.globalD, ground_truth, x2_inpaint.detach())
         losses['wgan_d'] = torch.mean(local_patch_fake_pred - local_patch_real_pred) + \
             torch.mean(global_fake_pred - global_real_pred) * self.config['global_wgan_loss_alpha']
         # gradients penalty loss
         local_penalty = self.calc_gradient_penalty(
-            self.localD, local_patch_gt, local_patch_x2_inpaint.detach())
+            self.localD, ground_truth, x2_inpaint.detach())
         global_penalty = self.calc_gradient_penalty(self.globalD, ground_truth, x2_inpaint.detach())
         losses['wgan_gp'] = local_penalty + global_penalty
 
         # G part
         if compute_loss_g:
             sd_mask = spatial_discounting_mask(self.config)
-            losses['l1'] = l1_loss(local_patch_x1_inpaint * sd_mask, local_patch_gt * sd_mask) * \
+            losses['l1'] = l1_loss(x1_inpaint * sd_mask, ground_truth * sd_mask) * \
                 self.config['coarse_l1_alpha'] + \
-                l1_loss(local_patch_x2_inpaint * sd_mask, local_patch_gt * sd_mask)
+                l1_loss(x2_inpaint * sd_mask, ground_truth * sd_mask)
             losses['ae'] = l1_loss(x1 * (1. - masks), ground_truth * (1. - masks)) * \
                 self.config['coarse_l1_alpha'] + \
                 l1_loss(x2 * (1. - masks), ground_truth * (1. - masks))
 
             # wgan g loss
             local_patch_real_pred, local_patch_fake_pred = self.dis_forward(
-                self.localD, local_patch_gt, local_patch_x2_inpaint)
+                self.localD, ground_truth, x2_inpaint)
             global_real_pred, global_fake_pred = self.dis_forward(
                 self.globalD, ground_truth, x2_inpaint)
             losses['wgan_g'] = - torch.mean(local_patch_fake_pred) - \

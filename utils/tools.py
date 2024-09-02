@@ -473,7 +473,7 @@ def deprocess(img):
 # get configs
 def get_config(config):
     with open(config, 'r') as stream:
-        return yaml.load(stream)
+        return yaml.load(stream, Loader=yaml.SafeLoader)
 
 
 # Get model list for resume
