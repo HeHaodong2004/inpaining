@@ -177,10 +177,9 @@ class FineGenerator(nn.Module):
         x = self.allconv16(x)
         x = self.allconv17(x)
         x_stage2 = torch.clamp(x, -1., 1.)
-
-        # x_stage2 = torch.where(x_stage2 >= 0,
-        #                        torch.tensor(1.0, dtype=x_stage2.dtype, device=x_stage2.device),
-        #                        torch.tensor(-253.0 / 255, dtype=x_stage2.dtype, device=x_stage2.device))
+        # x_stage2 = torch.where(x >= 0,
+        #                        torch.tensor(1.0, dtype=x.dtype, device=x.device),
+        #                        torch.tensor(-253.0 / 255, dtype=x.dtype, device=x.device))
         return x_stage2, offset_flow
 
 

@@ -38,10 +38,10 @@ class Dataset(data.Dataset):
 
 
     def __getitem__(self, index):
-        partial_img = self.crop_img(os.path.join(f"{self.data_path}/part", self.partial_map[index]))
+        partial_img = self.crop_img(os.path.join(f"{self.data_path}/part", self.partial_map[index]), img_type='grayscale')
         mask_img = self.crop_img(os.path.join(f"{self.data_path}/mask", self.map_mask[index]), img_type='binary')
         map_id = self.partial_map[index].split('_')[0]
-        ground_truth = self.crop_img(os.path.join(f"{self.data_path}/full", f"{map_id}.png"))
+        ground_truth = self.crop_img(os.path.join(f"{self.data_path}/full", f"{map_id}.png"), img_type='grayscale')
         return ground_truth, partial_img, mask_img
 
     def __len__(self):

@@ -337,12 +337,13 @@ def pt_highlight_flow(flow):
 
 def compute_color(u, v):
     h, w = u.shape
-    img = np.zeros([h, w, 3])
+    img = np.zeros([h, w, 1])
     nanIdx = np.isnan(u) | np.isnan(v)
     u[nanIdx] = 0
     v[nanIdx] = 0
     # colorwheel = COLORWHEEL
-    colorwheel = make_color_wheel()
+    # colorwheel = make_color_wheel()
+    colorwheel = np.linspace(0, 255, 55, dtype=int).reshape(-1, 1)
     ncols = np.size(colorwheel, 0)
     rad = np.sqrt(u ** 2 + v ** 2)
     a = np.arctan2(-v, -u) / np.pi
