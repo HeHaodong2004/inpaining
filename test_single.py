@@ -12,19 +12,18 @@ import torchvision.utils as vutils
 
 from model.networks import Generator
 from utils.tools import get_config, random_bbox, mask_image, is_image_file, default_loader, normalize, get_model_list
+from parameter import SAVE_PATH
 
 
 parser = ArgumentParser()
 parser.add_argument('--config', type=str, default='configs/test.yaml',
                     help="testing configuration")
 parser.add_argument('--seed', type=int, help='manual seed')
-# parser.add_argument('--image', type=str, default='dataset/full/1.png')
-# parser.add_argument('--mask', type=str, default=None)
-parser.add_argument('--image', type=str, default='dataset/part/1_0.png')
-parser.add_argument('--mask', type=str, default='dataset/mask/1_0.png')
-parser.add_argument('--output', type=str, default='dataset/1_0_p.png')
+# parser.add_argument('--image', type=str, default='dataset/part/1_0.png')
+# parser.add_argument('--mask', type=str, default='dataset/mask/1_0.png')
+# parser.add_argument('--output', type=str, default='dataset/1_0_p.png')
 parser.add_argument('--flow', type=str, default='')
-parser.add_argument('--checkpoint_path', type=str, default='part_map_inpainting')
+parser.add_argument('--checkpoint_path', type=str, default=f'{SAVE_PATH}/models')
 parser.add_argument('--iter', type=int, default=0)
 
 def main(netG, args, config):
@@ -33,8 +32,8 @@ def main(netG, args, config):
             if is_image_file(args.image):
                 if args.mask and is_image_file(args.mask):
                     # Test a single masked image with a given mask
-                    x = default_loader(args.image)
-                    mask = default_loader(args.mask)
+                    x = default_loader(args.image).convert('L')
+                    mask = default_loader(args.mask).convert('1')
                     x = transforms.Resize(config['image_shape'][:-1])(x)
                     x = transforms.CenterCrop(config['image_shape'][:-1])(x)
                     mask = transforms.Resize(config['image_shape'][:-1])(mask)
