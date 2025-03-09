@@ -36,13 +36,20 @@ class Dataset(data.Dataset):
         img = normalize(img)
         return img
 
-
     def __getitem__(self, index):
-        partial_img = self.crop_img(os.path.join(f"{self.data_path}/part", self.partial_map[index]), img_type='grayscale')
+        part_name = self.partial_map[index]  
+        split_str = part_name.split('.')[0] 
+        map_id, step_str = split_str.split('_')  
+        sample_id = int(map_id)
+        step = int(step_str)
+
+        partial_img = self.crop_img(os.path.join(f"{self.data_path}/part", part_name), img_type='grayscale')
         mask_img = self.crop_img(os.path.join(f"{self.data_path}/mask", self.map_mask[index]), img_type='binary')
-        map_id = self.partial_map[index].split('_')[0]
+        
         ground_truth = self.crop_img(os.path.join(f"{self.data_path}/full", f"{map_id}.png"), img_type='grayscale')
-        return ground_truth, partial_img, mask_img
+        
+        return ground_truth, partial_img, mask_img, sample_id, step
+
 
     def __len__(self):
         return len(self.partial_map)
