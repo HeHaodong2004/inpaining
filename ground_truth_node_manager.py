@@ -25,10 +25,8 @@ class GroundTruthNodeManager:
         self.update_graph()
 
         all_node_coords = []
-        # 从 belief 中读取节点
         for node in self.node_manager.nodes_dict.__iter__():
             all_node_coords.append(node.data.coords)
-        # 还将未探索的 ground truth 节点加入
         for node in self.nodes_dict.__iter__():
             if node.data.explored == 0:
                 all_node_coords.append(node.data.coords)
@@ -41,16 +39,13 @@ class GroundTruthNodeManager:
         adjacent_matrix = np.ones((n_nodes, n_nodes)).astype(int)
         node_coords_to_check = all_node_coords[:, 0] + all_node_coords[:, 1] * 1j
 
-        # 计算当前从 robot_location 出发的最短路径（基于 utility > 0 节点）
         shortest_path = self.compute_shortest_path(robot_location)
-        # 输出调试信息（可选）
         # print("Debug: computed shortest path:", shortest_path)
 
         for i, coords in enumerate(all_node_coords):
             node = self.nodes_dict.find((coords[0], coords[1])).data
             utility.append(node.utility)
             explored_sign.append(node.explored)
-            # 如果当前节点坐标出现在最短路径中，则标记为 guidepost
             if (coords[0], coords[1]) in shortest_path:
                 guidepost.append(1)
             else:
@@ -79,10 +74,8 @@ class GroundTruthNodeManager:
 
         node_coords = all_node_coords
         node_utility = utility.reshape(-1, 1)
-        # 这里将 explored_sign 和 guidepost 分别作为两个特征
         node_explored = explored_sign.reshape(-1, 1)
         node_guidepost = guidepost.reshape(-1, 1)
-        # 额外添加 uncertainty 特征
         if self.ground_truth_map_info.uncertainty is None:
             node_uncertainty = np.zeros((n_nodes, 1))
         else:
@@ -93,7 +86,6 @@ class GroundTruthNodeManager:
                 node_uncertainty.append(unc)
             node_uncertainty = np.array(node_uncertainty).reshape(-1, 1)
 
-        # 拼接后的特征维度（2 + 1 + 1 + 2 = 6）
         node_inputs = np.concatenate((node_coords, node_utility, node_guidepost, node_uncertainty), axis=1)
         node_inputs = torch.FloatTensor(node_inputs).unsqueeze(0).to(self.device)
 
@@ -125,7 +117,6 @@ class GroundTruthNodeManager:
 
         return [node_inputs, node_padding_mask, edge_mask, current_index, current_edge, edge_padding_mask]
 
-    # 新增：根据 robot_location 和当前 nodes_dict 计算最短路径（不包含起点），路径仅考虑 utility > 0 的节点
     def compute_shortest_path(self, robot_location):
         dist, prev = self.Dijkstra(robot_location)
         best_dist = float('inf')
@@ -266,7 +257,6 @@ class GroundTruthNodeManager:
             path_cell = get_cell_position_from_coords(np.array(coverage_path), self.ground_truth_map_info)
             plt.plot(path_cell[:, 0], path_cell[:, 1], 'b', linewidth=2, zorder=1)
 
-    # 新增：根据 robot_location 计算从当前节点图中 utility > 0 的节点中最近目标的最短路径（不包含起点）
     def compute_shortest_path(self, robot_location):
         dist, prev = self.Dijkstra(robot_location)
         best_dist = float('inf')
