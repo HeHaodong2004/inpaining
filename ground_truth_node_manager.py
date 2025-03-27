@@ -7,7 +7,6 @@ from utils import quads
 import matplotlib.pyplot as plt
 
 
-
 class GroundTruthNodeManager:
     def __init__(self, node_manager, ground_truth_map_info, device='cpu', plot=False):
         self.nodes_dict = quads.QuadTree((0, 0), 1000, 1000)
@@ -16,6 +15,7 @@ class GroundTruthNodeManager:
         self.ground_truth_node_coords = None
         self.ground_truth_node_utility = None
         self.explored_sign = None
+        self.guidepost = None   
         self.device = device
         self.plot = plot
 
@@ -31,34 +31,89 @@ class GroundTruthNodeManager:
             if node.data.explored == 0:
                 all_node_coords.append(node.data.coords)
         all_node_coords = np.array(all_node_coords).reshape(-1, 2)
-        utility = []
-        explored_sign = []
-        guidepost = []
-
         n_nodes = all_node_coords.shape[0]
-        adjacent_matrix = np.ones((n_nodes, n_nodes)).astype(int)
+
         node_coords_to_check = all_node_coords[:, 0] + all_node_coords[:, 1] * 1j
 
-        shortest_path = self.compute_shortest_path(robot_location)
-        # print("Debug: computed shortest path:", shortest_path)
+        guidepost = np.zeros(n_nodes, dtype=int)
 
+        dist_dict, prev_dict = self.Dijkstra(robot_location)
+
+        frontier_nodes = []
+        for coords in all_node_coords:
+            node_data = self.nodes_dict.find((coords[0], coords[1])).data
+            if node_data.utility > 0:
+                frontier_nodes.append(coords)
+        frontier_nodes = np.array(frontier_nodes) if len(frontier_nodes) > 0 else np.empty((0, 2))
+
+        clusters = []
+        if frontier_nodes.shape[0] > 0:
+            visited = set()
+            frontier_set = set((x, y) for x, y in frontier_nodes)
+            frontier_idx_map = {}
+            for i, (fx, fy) in enumerate(frontier_nodes):
+                frontier_idx_map[(fx, fy)] = i
+
+            adjacency_frontier = [[] for _ in range(len(frontier_nodes))]
+            for i, (fx, fy) in enumerate(frontier_nodes):
+                node_data = self.nodes_dict.find((fx, fy)).data
+                for neighbor in node_data.neighbor_list:
+                    if (neighbor[0], neighbor[1]) in frontier_set:
+                        j = frontier_idx_map[(neighbor[0], neighbor[1])]
+                        adjacency_frontier[i].append(j)
+
+            def bfs_cluster(start_idx):
+                queue = [start_idx]
+                comp = []
+                visited.add(start_idx)
+                while queue:
+                    cur = queue.pop(0)
+                    comp.append(cur)
+                    for neigh_idx in adjacency_frontier[cur]:
+                        if neigh_idx not in visited:
+                            visited.add(neigh_idx)
+                            queue.append(neigh_idx)
+                return comp
+
+            for idx in range(len(frontier_nodes)):
+                if idx not in visited:
+                    cluster = bfs_cluster(idx)
+                    clusters.append(cluster)
+
+        for comp in clusters:
+            min_dist = float('inf')
+            best_node = None
+            for fid in comp:
+                fx, fy = frontier_nodes[fid]
+                if (fx, fy) in dist_dict and dist_dict[(fx, fy)] < min_dist:
+                    min_dist = dist_dict[(fx, fy)]
+                    best_node = (fx, fy)
+            if best_node is None:
+                continue
+            path, _ = self.get_Dijkstra_path_and_dist(dist_dict, prev_dict, best_node)
+            for (px, py) in path:
+                idx = np.argwhere(node_coords_to_check == px + py * 1j)
+                if idx.size > 0:
+                    guidepost_idx = idx[0][0]
+                    guidepost[guidepost_idx] = 1
+
+        self.guidepost = guidepost
+
+        utility = []
+        explored_sign = []
+        adjacent_matrix = np.ones((n_nodes, n_nodes), dtype=int)
         for i, coords in enumerate(all_node_coords):
             node = self.nodes_dict.find((coords[0], coords[1])).data
             utility.append(node.utility)
             explored_sign.append(node.explored)
-            if (coords[0], coords[1]) in shortest_path:
-                guidepost.append(1)
-            else:
-                guidepost.append(0)
             for neighbor in node.neighbor_list:
                 index = np.argwhere(node_coords_to_check == neighbor[0] + neighbor[1] * 1j)
-                index = index[0][0]
-                adjacent_matrix[i, index] = 0
+                if index.size > 0:
+                    index = index[0][0]
+                    adjacent_matrix[i, index] = 0
 
         utility = np.array(utility)
         explored_sign = np.array(explored_sign)
-        guidepost = np.array(guidepost)
-
         current_index = np.argwhere(node_coords_to_check == robot_location[0] + robot_location[1] * 1j)[0][0]
 
         neighbor_indices = []
@@ -117,7 +172,34 @@ class GroundTruthNodeManager:
 
         return [node_inputs, node_padding_mask, edge_mask, current_index, current_edge, edge_padding_mask]
 
+    def plot_ground_truth_env(self, robot_location, coverage_path=None):
+        plt.subplot(1, 3, 3)
+        plt.imshow(self.ground_truth_map_info.map, cmap='gray')
+        plt.axis('off')
+        
+        nodes = get_cell_position_from_coords(self.ground_truth_node_coords, self.ground_truth_map_info)
+
+        plt.scatter(nodes[:, 0], nodes[:, 1], c=self.explored_sign, zorder=2)
+
+        robot = get_cell_position_from_coords(robot_location, self.ground_truth_map_info)
+        plt.plot(robot[0], robot[1], 'mo', markersize=16, zorder=5)
+
+        if self.guidepost is not None:
+            guidepost_mask = np.array(self.guidepost, dtype=bool)
+            if guidepost_mask.any():
+                guidepost_nodes = nodes[guidepost_mask]
+                plt.scatter(guidepost_nodes[:, 0], guidepost_nodes[:, 1],
+                            c='green', s=50, marker='o', label='Guidepost', zorder=3)
+                plt.legend()
+
+        if coverage_path is not None:
+            path_cell = get_cell_position_from_coords(np.array(coverage_path), self.ground_truth_map_info)
+            plt.plot(path_cell[:, 0], path_cell[:, 1], 'b', linewidth=2, zorder=1)
+        
+        plt.show()
+
     def compute_shortest_path(self, robot_location):
+
         dist, prev = self.Dijkstra(robot_location)
         best_dist = float('inf')
         best_node = None
@@ -158,7 +240,7 @@ class GroundTruthNodeManager:
                 ground_truth_node.data.explored = 1
                 ground_truth_node.data.visited = node.data.visited
             else:
-                #print('Warning: Node in belief not found in prediction')
+                # print('Warning: Node in belief not found in prediction')
                 self.add_node_to_dict(coords)
 
     def get_ground_truth_node_coords(self, ground_truth_map_info):
@@ -243,39 +325,6 @@ class GroundTruthNodeManager:
             prev = prev_dict[prev]
         path.reverse()
         return path[1:], np.round(d, 2)
-
-    def plot_ground_truth_env(self, robot_location, coverage_path=None):
-        plt.subplot(1, 3, 3)
-        plt.imshow(self.ground_truth_map_info.map, cmap='gray')
-        plt.axis('off')
-        robot = get_cell_position_from_coords(robot_location, self.ground_truth_map_info)
-        nodes = get_cell_position_from_coords(self.ground_truth_node_coords, self.ground_truth_map_info)
-        plt.imshow(self.ground_truth_map_info.map, cmap='gray')
-        plt.scatter(nodes[:, 0], nodes[:, 1], c=self.explored_sign, zorder=2)
-        plt.plot(robot[0], robot[1], 'mo', markersize=16, zorder=5)
-        if coverage_path is not None:
-            path_cell = get_cell_position_from_coords(np.array(coverage_path), self.ground_truth_map_info)
-            plt.plot(path_cell[:, 0], path_cell[:, 1], 'b', linewidth=2, zorder=1)
-
-    def compute_shortest_path(self, robot_location):
-        dist, prev = self.Dijkstra(robot_location)
-        best_dist = float('inf')
-        best_node = None
-        for node in self.nodes_dict.__iter__():
-            node_data = node.data
-            if node_data.utility > 0:
-                key = (node_data.coords[0], node_data.coords[1])
-                if key == (robot_location[0], robot_location[1]):
-                    continue
-                if key in dist and dist[key] < best_dist:
-                    best_dist = dist[key]
-                    best_node = key
-        if best_node is None:
-            return []
-        path, _ = self.get_Dijkstra_path_and_dist(dist, prev, best_node)
-        return path
-
-
 
 class Node:
     def __init__(self, coords):
